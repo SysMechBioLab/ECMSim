@@ -278,8 +278,7 @@ If you use this simulation in research, please cite:
 
 ```
 [Paper Citation]
-Cardiac Fibroblast ECM Signaling Pathway Simulation
-Available at: https://github.com/RichardsonLab/ecm_simulation
+
 ```
 
 ## License
