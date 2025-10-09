@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECM Signaling Pathway Visualization</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        
+        #molecule-selector {
+            margin-bottom: 20px;
+            padding: 5px;
+            font-size: 16px;
+        }
+        
+        #input-controls {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .input-control {
+            display: flex;
+            align-items: center;
+        }
+        
+        .input-control label {
+            width: 80px;
+            margin-right: 10px;
+        }
+        
+        .input-control input {
+            flex-grow: 1;
+        }
+        
+        #simulation-controls {
+            margin-bottom: 20px;
+        }
+        
+        #simulation-controls button {
+            padding: 8px 15px;
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        
+        canvas {
+            border: 1px solid #ccc;
+            margin-top: 20px;
+        }
+        
+        .status {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>ECM Simulation</h1>
+    <div class="status">Select molecule</div>
+    
+    <!-- First load the Emscripten generated module -->
+    <script src="ecm.js"></script>
+    
+    <!-- Then load our custom JS code -->
+    <script src="ecm_visualizer.js?v=1"></script>
+</body>
+</html>
