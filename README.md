@@ -17,6 +17,8 @@ This simulation models complex signaling networks in cardiac fibroblasts, includ
 
 ## Key Features
 
+![](Figures/Fig-4.png)
+
 ### Interactive Brush Tool
 
 - Select specific regions of cells using an adjustable brush
@@ -151,6 +153,8 @@ Open browser and navigate to: `http://localhost:8000`
   - Input, feedback, degradation, and diffusion rates
 
 ## Scientific Background
+
+![](Figures/Fig-1.png)
 
 ### Modeled Pathways
 
