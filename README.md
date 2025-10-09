@@ -2,7 +2,9 @@
 
 A real-time interactive web-based simulation of cardiac fibroblast extracellular matrix (ECM) signaling pathways using WebAssembly and ODE-based modeling.
 
-## Overview
+**!**[**ECMSim Simulation**](**Figures/Fig-3.png**) (Figures/Fig-3.pdf)
+
+## Overview {![ECMSim Screenshot](images/ecmsim-screenshot.png)}
 
 This simulation models complex signaling networks in cardiac fibroblasts, including:
 
@@ -283,7 +285,7 @@ If you use this simulation in research, please cite:
 
 ## License
 
-MIT License 
+MIT License
 
 ## Acknowledgments
 
