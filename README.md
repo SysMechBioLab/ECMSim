@@ -294,6 +294,7 @@ MIT License
 
 ## Acknowledgments
 
+- This work was supported by the National Institutes of Health (NIGMS R01GM157589) and the Department of Defense (DEPSCoR FA9550-22-1-0379)
 - Emscripten team for WebAssembly toolchain
 - Scientific literature on cardiac fibroblast signaling
 - Open source contributors to mathematical and visualization libraries
