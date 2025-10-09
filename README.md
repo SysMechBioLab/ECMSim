@@ -8,6 +8,7 @@ A real-time interactive web-based simulation of cardiac fibroblast extracellular
 
 This simulation models complex signaling networks in cardiac fibroblasts, including:
 
+- **Real-time ODE solver** Interactive web-page solves more than 1 million equations simultaneously in real-time.
 - **Intracellular signaling cascades** (more than 125 molecules including receptors, kinases, transcription factors)
 - **ECM production and regulation** (17 molecules including collagens, MMPs, TIMPs)
 - **Feedback mechanisms** between cells (4 key signaling feedback molecules)
