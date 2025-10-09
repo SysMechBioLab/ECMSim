@@ -81,7 +81,7 @@ cd ..
 
 ```bash
 # Clone this repository
-git clone [repo-url]
+git clone https://github.com/SysMechBioLab/ECMSim
 cd ecm_simulation
 
 # Make scripts executable
