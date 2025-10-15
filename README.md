@@ -285,7 +285,7 @@ If you use this simulation in research, please cite:
 
 ```
 Preprint:
-https://doi.org/10.48550/arXiv.2510.12577
+[arXiv:2510.12577](https://doi.org/10.48550/arXiv.2510.12577)
 
 ```
 
