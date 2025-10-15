@@ -284,7 +284,8 @@ rm ecm.js ecm.wasm
 If you use this simulation in research, please cite:
 
 ```
-[Paper Citation]
+Preprint:
+https://doi.org/10.48550/arXiv.2510.12577
 
 ```
 
