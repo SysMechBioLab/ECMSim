@@ -187,7 +187,7 @@ Open browser and navigate to: `http://localhost:8000`
 
 ### WebAssembly Performance
 
-- **C++ simulation core**: Handles 10,000 cells × 142 molecules in real-time
+- **C++ simulation core**: Handles 10,000 cells × 132 molecules in real-time
 - **JavaScript visualization**: 60 FPS rendering with Canvas API
 - **Memory management**: Efficient pointer-based data access
 - **Function exports**: 15+ C++ functions accessible from JavaScript
