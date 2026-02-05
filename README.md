@@ -37,9 +37,10 @@ This simulation models complex signaling networks in cardiac fibroblasts, includ
 ### Advanced Visualization
 
 - Main heatmap (500×500px) showing full 100×100 grid
-- Small tracking heatmap (150×150px) for detailed cell monitoring
+- Select up to 8 cells directly on the main heatmap for detailed tracking
 - Real-time line plots of concentration changes over time
 - Color-coded gradients (red-yellow for ECM, blue for feedback)
+- Figure export in PNG and SVG formats
 
 ## Project Structure
 
@@ -141,10 +142,16 @@ Open browser and navigate to: `http://localhost:8000`
 
 #### Cell Tracking
 
-1. Click on small heatmap to select up to 2 cells for detailed tracking
-2. View real-time concentration plots
-3. Manually edit individual cell concentrations
+1. Click directly on the main heatmap to select up to 8 cells for detailed tracking
+2. View real-time concentration plots for all selected cells
+3. Manually edit individual cell concentrations for any selected cell
 4. Monitor spatial and temporal dynamics
+
+#### Figure Export
+
+- Click the export button to save the current heatmap visualization
+- Supported formats: PNG and SVG
+- Useful for publications and presentations
 
 #### Parameter Tuning
 
@@ -152,6 +159,59 @@ Open browser and navigate to: `http://localhost:8000`
   - Time step control (0.01-0.5)
   - Rate constants for all pathway components
   - Input, feedback, degradation, and diffusion rates
+
+## Quick Start Workflows
+
+The following three minimal worked examples demonstrate common use cases and help new users engage with the platform.
+
+### Workflow 1: Basic Fibrosis Simulation (TGF-β Stimulation)
+
+This workflow demonstrates how localized TGF-β stimulation drives collagen accumulation.
+
+1. Open ECMSim in your browser (`http://localhost:8000`).
+2. From the **molecule dropdown**, select **proCI_ecm** (procollagen type I) to visualize collagen in the main heatmap.
+3. Click **"Enable Brush Mode"** and adjust the brush size to ~5 cells.
+4. Click and drag on the main heatmap to select a rectangular region of cells. The selected region will be highlighted.
+5. In the **input concentration panel**, set **TGF-β = 1.0** using the slider. Leave all other inputs at 0.
+6. Click **"Start"** to begin the simulation.
+7. Observe the main heatmap: over approximately 100-300 iterations, the selected (brushed) region will show increasing yellow color (higher procollagen I concentration), while the surrounding area remains dark.
+8. After ~500 iterations, notice how feedback molecule diffusion causes a concentration gradient extending beyond the initially stimulated region, demonstrating paracrine signaling.
+9. Click **"Stop"** to pause at any time and inspect the spatial pattern.
+
+**Expected outcome:** Collagen I accumulates in and around the stimulated region, with a diffusion gradient spreading outward.
+
+### Workflow 2: Combinatorial Cytokine Experiment
+
+This workflow compares single vs. multi-factor stimulation and demonstrates cell tracking.
+
+1. Click **"Reset"** to start fresh.
+2. Select **proCI_ecm** from the molecule dropdown.
+3. Enable Brush Mode with brush size ~8.
+4. Draw an **X-shaped** pattern on the heatmap by clicking and dragging.
+5. Set **TGF-β = 1.0**, **AngII = 1.0**, **IL6 = 1.0**, and **IL1 = 1.0**. Leave other inputs at 0.
+6. Click directly on the **main heatmap** on a cell **inside** the X region to select it as Cell 1 (marked with a colored indicator).
+7. Click on a cell **outside** the X region to select it as Cell 2. You can select up to 8 cells for simultaneous tracking.
+8. Click **"Start"** and observe:
+   - The **main heatmap** shows enhanced collagen accumulation in the X region compared to Workflow 1 (single TGF-β), reflecting synergistic pathway crosstalk.
+   - The **real-time line plots** show Cell 1 (stimulated) rapidly increasing in proCI concentration, while Cell 2 (unstimulated) shows a delayed, smaller increase due to diffusing feedback molecules.
+9. Try switching the molecule dropdown to **proMMP9_ecm** (MMP-9) to observe the MMP response in the same spatial pattern.
+
+**Expected outcome:** Multi-factor stimulation produces stronger and faster ECM accumulation than TGF-β alone. The line plots reveal distinct temporal dynamics between stimulated and unstimulated cells.
+
+### Workflow 3: Parameter Sensitivity Exploration
+
+This workflow demonstrates how rate constant changes affect fibrotic outcomes in real time.
+
+1. Click **"Reset"** and set up a simple stimulation: enable Brush Mode, select a small square region, and set **TGF-β = 1.0**.
+2. Select **proCI_ecm** and click **"Start"**. Let the simulation run for ~200 iterations to establish a baseline pattern, then click **"Stop"**.
+3. Click **"Show ODE Parameters"** to open the parameter panel.
+4. **Experiment A (degradation rate):** Increase `k_degradation` from 0.1 to 0.3 using the slider. Click **"Start"** again and observe: higher degradation reduces collagen accumulation and narrows the spatial spread.
+5. Click **"Stop"**, then **reset** `k_degradation` back to 0.1.
+6. **Experiment B (production rate):** Increase `k_production` from 0.01 to 0.03. Click **"Start"** and observe: higher production rate substantially increases collagen levels, consistent with the sensitivity analysis showing `k_production` as the most influential parameter.
+7. **Experiment C (feedback sensitivity):** Reset `k_production` to 0.01, then increase `k_feedback` from 0.5 to 1.5. Observe how enhanced feedback amplifies the paracrine signaling, extending the spatial spread of the fibrotic response.
+8. Try adjusting the **time step** (dt) slider to see how it affects simulation speed and stability.
+
+**Expected outcome:** `k_production` has the largest effect on ECM accumulation magnitude, `k_degradation` controls the balance between deposition and turnover, and `k_feedback` primarily affects the spatial extent of the fibrotic response.
 
 ## Scientific Background
 ![](Figures/Fig-2.png)
