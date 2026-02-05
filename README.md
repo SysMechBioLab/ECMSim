@@ -3,7 +3,7 @@
 A real-time interactive web-based simulation of cardiac fibroblast extracellular matrix (ECM) signaling pathways using WebAssembly and ODE-based modeling.
 
 ![](Figures/Fig-3.png)
-![](Figures/Fig-2.png)
+
 ## Overview
 
 This simulation models complex signaling networks in cardiac fibroblasts, including:
@@ -154,11 +154,10 @@ Open browser and navigate to: `http://localhost:8000`
   - Input, feedback, degradation, and diffusion rates
 
 ## Scientific Background
-
-![](Figures/Fig-1.png)
+![](Figures/Fig-2.png)
 
 ### Modeled Pathways
-
+![](Figures/Fig-1.png)
 **Input Signals**: AngII, TGFβ, mechanical tension, cytokines (IL-6, IL-1, TNFα), catecholamines, growth factors (PDGF), endothelin-1, natriuretic peptides, estrogen
 
 **Key Signaling Cascades**:
