@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Users/Dr-Hasi/ACADEMIC/Postdoc/UOA/Project 3 ECM/Submission/Git /v1.1/ECMSim/ECMSim",
+      "program": "/Users/Dr-Hasi/ACADEMIC/Postdoc/UOA/Project 3 ECM/Submission/Git /v1.1/ECMSim/ECMSim/build/Debug/outDebug"
+    }
+  ]
+}

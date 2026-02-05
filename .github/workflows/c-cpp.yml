@@ -13,11 +13,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: configure
-      run: ./configure
-    - name: make
-      run: make
-    - name: make check
-      run: make check
-    - name: make distcheck
-      run: make distcheck
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+
+    - name: Verify Emscripten
+      run: emcc --version
+
+    - name: Make compile script executable
+      run: chmod +x compile.sh
+
+    - name: Compile with Emscripten
+      run: ./compile.sh
+
+    - name: Verify build output
+      run: |
+        ls -la ecm.js ecm.wasm
