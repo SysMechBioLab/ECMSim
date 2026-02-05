@@ -1,2 +1,2 @@
 #!/bin/bash
-python3 -m http.server 8000 --bind localhost
+python3 -m http.server 8000

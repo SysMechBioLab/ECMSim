@@ -4,15 +4,25 @@ class ECMVisualizer {
         this.currentMoleculeIndex = 0; // proCI by default
         this.simulationRunning = false;
         this.iteration = 0;
+        this.currentTime = 0.0; // ADDED: Missing property initialization
         this.dataBuffer = null;
         this.timeStep = 0.1; // Default time step for ODE integration
-        this.smallGridSize = 5; // Size of the small heatmap grid
-        this.selectedCells = []; // Will store randomly selected cell positions
+        
+        // For visualization range (needed for text display)
+        this.minValue = 0.1; // ADDED: Default values
+        this.maxValue = 0.9; // ADDED: Default values
+        this.brushSelectedCells = 0; // ADDED: Missing property
+        
+        // Individual cell selection for tracking (NOT for input)
+        this.cellSelectionMode = false;
+        this.trackedCells = []; // Array of {row, col, color} objects for line plot tracking
+        // Publication-quality colorblind-safe palette (Wong, Nature Methods 2011)
+        this.cellColors = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9', '#F0E442', '#000000'];
         
         // Track modified values for selected cells
         this.modifiedCellValues = {};
         
-        // Brush selection properties
+        // Brush selection properties (for input molecules)
         this.brushMode = false;
         this.brushSize = 5; // Brush radius in cells
         this.selectedCellsForInput = new Set(); // Stores "row,col" strings of selected cells
@@ -50,6 +60,7 @@ class ECMVisualizer {
         this.inputMolecules = [
             {name: 'AngIIin', index: 0},
             {name: 'TGFBin', index: 1},
+            {name: 'tensionin', index: 2},
             {name: 'IL6in', index: 3},
             {name: 'IL1in', index: 4},
             {name: 'TNFain', index: 5},
@@ -78,10 +89,16 @@ class ECMVisualizer {
             this.currentInputValues[mol.name] = 0;
         });
         
+        // Initialize data for tracking concentrations
+        this.concentrationData = {}; // Will store data for each tracked cell
+        
+        // Store elements for later access
+        this.uiElements = {};
+        
         // Initialize UI
         this.initUI();
         this.initCanvas();
-        this.initSmallCanvas();
+        this.initLinePlot();
         
         // Connect to WebAssembly module
         this.initWasm();
@@ -110,12 +127,12 @@ class ECMVisualizer {
         selector.addEventListener('change', (e) => {
             this.currentMoleculeIndex = parseInt(e.target.value);
             this.updateVisualization();
-            this.updateCellEditUI();
+            this.updateTrackedCellsUI();
         });
         
         document.body.appendChild(selector);
         
-        // Create brush selection controls
+        // Create brush selection controls (for input molecules) - KEEP ABOVE HEATMAP
         const brushContainer = document.createElement('div');
         brushContainer.id = 'brush-controls';
         brushContainer.style.border = '2px solid #007acc';
@@ -124,21 +141,21 @@ class ECMVisualizer {
         brushContainer.style.backgroundColor = '#f0f8ff';
         
         const brushTitle = document.createElement('h3');
-        brushTitle.textContent = 'Brush Selection Tool';
+        brushTitle.textContent = 'Brush selection tool (for input molecules)';
         brushTitle.style.margin = '0 0 10px 0';
         brushContainer.appendChild(brushTitle);
         
         // Brush mode toggle
         const brushToggle = document.createElement('button');
         brushToggle.id = 'brush-toggle';
-        brushToggle.textContent = 'Enable Brush Mode';
+        brushToggle.textContent = 'Enable brush mode';
         brushToggle.style.marginRight = '10px';
         brushToggle.addEventListener('click', () => this.toggleBrushMode());
         brushContainer.appendChild(brushToggle);
         
         // Clear selection button
         const clearSelection = document.createElement('button');
-        clearSelection.textContent = 'Clear Selection';
+        clearSelection.textContent = 'Clear selection';
         clearSelection.style.marginRight = '10px';
         clearSelection.addEventListener('click', () => this.clearBrushSelection());
         brushContainer.appendChild(clearSelection);
@@ -149,7 +166,7 @@ class ECMVisualizer {
         brushSizeContainer.style.marginLeft = '10px';
         
         const brushSizeLabel = document.createElement('label');
-        brushSizeLabel.textContent = 'Brush Size: ';
+        brushSizeLabel.textContent = 'Brush size: ';
         brushSizeLabel.htmlFor = 'brush-size';
         
         const brushSizeInput = document.createElement('input');
@@ -192,7 +209,7 @@ class ECMVisualizer {
         inputContainer.style.margin = '10px 0';
         
         const inputTitle = document.createElement('h3');
-        inputTitle.textContent = 'Input Molecule Concentrations (for selected cells)';
+        inputTitle.textContent = 'Input molecule concentrations (for brush-selected cells)';
         inputTitle.style.margin = '0 0 10px 0';
         inputContainer.appendChild(inputTitle);
         
@@ -281,14 +298,14 @@ class ECMVisualizer {
         
         // Add rate constant controls
         const rateParams = [
-            { id: 'k_input', name: 'Input Rate', min: 0.1, max: 5.0, default: this.rateConstants.k_input },
-            { id: 'k_feedback', name: 'Feedback Rate', min: 0.1, max: 5.0, default: this.rateConstants.k_feedback },
-            { id: 'k_degradation', name: 'Degradation Rate', min: 0.01, max: 1.0, default: this.rateConstants.k_degradation },
-            { id: 'k_receptor', name: 'Receptor Rate', min: 0.1, max: 5.0, default: this.rateConstants.k_receptor },
-            { id: 'k_inhibition', name: 'Inhibition Rate', min: 0.1, max: 5.0, default: this.rateConstants.k_inhibition },
-            { id: 'k_activation', name: 'Activation Rate', min: 0.1, max: 5.0, default: this.rateConstants.k_activation },
-            { id: 'k_production', name: 'Production Rate', min: 0.001, max: 0.1, default: this.rateConstants.k_production },
-            { id: 'k_diffusion', name: 'Diffusion Rate', min: 0.01, max: 1.0, default: this.rateConstants.k_diffusion }
+            { id: 'k_input', name: 'Input rate', min: 0.1, max: 5.0, default: this.rateConstants.k_input },
+            { id: 'k_feedback', name: 'Feedback rate', min: 0.1, max: 5.0, default: this.rateConstants.k_feedback },
+            { id: 'k_degradation', name: 'Degradation rate', min: 0.01, max: 1.0, default: this.rateConstants.k_degradation },
+            { id: 'k_receptor', name: 'Receptor rate', min: 0.1, max: 5.0, default: this.rateConstants.k_receptor },
+            { id: 'k_inhibition', name: 'Inhibition rate', min: 0.1, max: 5.0, default: this.rateConstants.k_inhibition },
+            { id: 'k_activation', name: 'Activation rate', min: 0.1, max: 5.0, default: this.rateConstants.k_activation },
+            { id: 'k_production', name: 'Production rate', min: 0.001, max: 0.1, default: this.rateConstants.k_production },
+            { id: 'k_diffusion', name: 'Diffusion rate', min: 0.01, max: 1.0, default: this.rateConstants.k_diffusion }
         ];
         
         rateParams.forEach(param => {
@@ -328,14 +345,14 @@ class ECMVisualizer {
         
         // Add button to toggle ODE controls
         const toggleButton = document.createElement('button');
-        toggleButton.textContent = 'Show ODE Parameters';
+        toggleButton.textContent = 'Show ODE parameters';
         toggleButton.addEventListener('click', () => {
             if (odeContainer.style.display === 'none') {
                 odeContainer.style.display = 'block';
-                toggleButton.textContent = 'Hide ODE Parameters';
+                toggleButton.textContent = 'Hide ODE parameters';
             } else {
                 odeContainer.style.display = 'none';
-                toggleButton.textContent = 'Show ODE Parameters';
+                toggleButton.textContent = 'Show ODE parameters';
             }
         });
         
@@ -369,29 +386,943 @@ class ECMVisualizer {
         document.body.appendChild(controls);
     }
     
-    // Modified canvas initialization with mouse event handlers
+    // Initialize line plot canvas
+    initLinePlot() {
+        const container = document.createElement('div');
+        container.style.marginTop = '20px';
+
+        const plotsLabel = document.createElement('div');
+        plotsLabel.textContent = 'Tracked cell concentrations over time';
+        plotsLabel.style.fontWeight = 'bold';
+        plotsLabel.style.marginBottom = '10px';
+
+        // Create a flex container for canvas and buttons
+        const plotContainer = document.createElement('div');
+        plotContainer.style.display = 'flex';
+        plotContainer.style.alignItems = 'flex-end';
+        plotContainer.style.gap = '15px';
+
+        // Create canvas for line plots
+        this.linePlotCanvas = document.createElement('canvas');
+        this.linePlotCanvas.width = 700;
+        this.linePlotCanvas.height = 300;
+        this.linePlotCanvas.style.border = '1px solid #000';
+        this.linePlotCtx = this.linePlotCanvas.getContext('2d');
+
+        // Export buttons container (right side, bottom aligned)
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.flexDirection = 'column';
+        buttonContainer.style.gap = '10px';
+
+        const exportSVGButton = document.createElement('button');
+        exportSVGButton.textContent = '📥 Export Plot as SVG';
+        exportSVGButton.style.padding = '10px 15px';
+        exportSVGButton.style.backgroundColor = '#FF9800';
+        exportSVGButton.style.color = 'white';
+        exportSVGButton.style.border = 'none';
+        exportSVGButton.style.borderRadius = '4px';
+        exportSVGButton.style.cursor = 'pointer';
+        exportSVGButton.style.fontSize = '14px';
+        exportSVGButton.style.fontWeight = 'bold';
+        exportSVGButton.addEventListener('click', () => {
+            this.exportLinePlotToSVG();
+        });
+        buttonContainer.appendChild(exportSVGButton);
+
+        const exportPNGButton = document.createElement('button');
+        exportPNGButton.textContent = '📄 Export Plot as PNG';
+        exportPNGButton.style.padding = '10px 15px';
+        exportPNGButton.style.backgroundColor = '#2196F3';
+        exportPNGButton.style.color = 'white';
+        exportPNGButton.style.border = 'none';
+        exportPNGButton.style.borderRadius = '4px';
+        exportPNGButton.style.cursor = 'pointer';
+        exportPNGButton.style.fontSize = '14px';
+        exportPNGButton.style.fontWeight = 'bold';
+        exportPNGButton.addEventListener('click', () => {
+            this.exportLinePlotToPNG();
+        });
+        buttonContainer.appendChild(exportPNGButton);
+
+        plotContainer.appendChild(this.linePlotCanvas);
+        plotContainer.appendChild(buttonContainer);
+
+        container.appendChild(plotsLabel);
+        container.appendChild(plotContainer);
+
+        document.body.appendChild(container);
+    }
+    
     initCanvas() {
+        const canvasContainer = document.createElement('div');
+        canvasContainer.style.display = 'flex';
+        canvasContainer.style.alignItems = 'flex-start';
+        canvasContainer.style.gap = '15px';
+        canvasContainer.style.marginTop = '20px';
+        
+        // Create a container for the canvas and tracking controls
+        const leftContainer = document.createElement('div');
+        leftContainer.style.display = 'flex';
+        leftContainer.style.flexDirection = 'column';
+        leftContainer.style.gap = '15px';
+        
+        // Canvas
         this.canvas = document.createElement('canvas');
-        this.canvas.width = 500;
-        this.canvas.height = 500;
+        this.canvas.width = 600;
+        this.canvas.height = 600;
         this.ctx = this.canvas.getContext('2d');
         this.canvas.style.cursor = 'crosshair';
+        this.canvas.style.border = '1px solid #ccc';
+        this.canvas.style.width = '500px';
+        this.canvas.style.height = '500px';
         
-        // Add mouse event listeners for brush selection
         this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
         this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
         this.canvas.addEventListener('mouseleave', (e) => this.handleMouseUp(e));
+        this.canvas.addEventListener('click', (e) => this.handleCellClick(e));
         
-        document.body.appendChild(this.canvas);
+        leftContainer.appendChild(this.canvas);
+        
+        // NOW ADD CELL TRACKING TOOL BELOW THE HEATMAP
+        const trackingContainer = document.createElement('div');
+        trackingContainer.id = 'tracking-controls';
+        trackingContainer.style.border = '2px solid #ff6600';
+        trackingContainer.style.padding = '10px';
+        trackingContainer.style.margin = '10px 0';
+        trackingContainer.style.backgroundColor = '#fff5f0';
+        
+        const trackingTitle = document.createElement('h3');
+        trackingTitle.textContent = 'Cell tracking tool (for line plot)';
+        trackingTitle.style.margin = '0 0 10px 0';
+        trackingContainer.appendChild(trackingTitle);
+        
+        // Cell selection mode toggle
+        const cellSelectToggle = document.createElement('button');
+        cellSelectToggle.id = 'cell-select-toggle';
+        cellSelectToggle.textContent = 'Enable cell selection';
+        cellSelectToggle.style.marginRight = '10px';
+        cellSelectToggle.addEventListener('click', () => this.toggleCellSelectionMode());
+        trackingContainer.appendChild(cellSelectToggle);
+        
+        // Clear tracked cells button
+        const clearTrackedCells = document.createElement('button');
+        clearTrackedCells.textContent = 'Clear tracked cells';
+        clearTrackedCells.style.marginRight = '10px';
+        clearTrackedCells.addEventListener('click', () => this.clearTrackedCells());
+        trackingContainer.appendChild(clearTrackedCells);
+        
+        // Tracked cells info
+        const cellsInfo = document.createElement('div');
+        cellsInfo.id = 'cells-info';
+        cellsInfo.style.marginTop = '10px';
+        cellsInfo.style.fontStyle = 'italic';
+        cellsInfo.textContent = 'No cells selected for tracking';
+        trackingContainer.appendChild(cellsInfo);
+        
+        // Container for tracked cell concentration controls
+        const trackedCellsContainer = document.createElement('div');
+        trackedCellsContainer.id = 'tracked-cells-container';
+        trackedCellsContainer.style.marginTop = '10px';
+        trackingContainer.appendChild(trackedCellsContainer);
+        
+        leftContainer.appendChild(trackingContainer);
+        
+        canvasContainer.appendChild(leftContainer);
+        
+        // Export buttons container (right side)
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.flexDirection = 'column';
+        buttonContainer.style.gap = '10px';
+        
+        const exportSVGButton = document.createElement('button');
+        exportSVGButton.textContent = '📥 Export as SVG (600x600)';
+        exportSVGButton.style.padding = '10px 15px';
+        exportSVGButton.style.backgroundColor = '#FF9800';
+        exportSVGButton.style.color = 'white';
+        exportSVGButton.style.border = 'none';
+        exportSVGButton.style.borderRadius = '4px';
+        exportSVGButton.style.cursor = 'pointer';
+        exportSVGButton.style.fontSize = '14px';
+        exportSVGButton.style.fontWeight = 'bold';
+        exportSVGButton.addEventListener('click', () => {
+            console.log("SVG Export button clicked");
+            this.exportCanvasToSVG();
+        });
+        buttonContainer.appendChild(exportSVGButton);
+        
+        const exportPNGButton = document.createElement('button');
+        exportPNGButton.textContent = '📄 Export as PNG (600x600)';
+        exportPNGButton.style.padding = '10px 15px';
+        exportPNGButton.style.backgroundColor = '#2196F3';
+        exportPNGButton.style.color = 'white';
+        exportPNGButton.style.border = 'none';
+        exportPNGButton.style.borderRadius = '4px';
+        exportPNGButton.style.cursor = 'pointer';
+        exportPNGButton.style.fontSize = '14px';
+        exportPNGButton.style.fontWeight = 'bold';
+        exportPNGButton.addEventListener('click', () => {
+            console.log("PNG Export button clicked");
+            this.exportCanvasToPNG();
+        });
+        buttonContainer.appendChild(exportPNGButton);
+        
+        canvasContainer.appendChild(buttonContainer);
+        document.body.appendChild(canvasContainer);
+    }
+    
+    exportCanvasToSVG() {
+        try {
+            console.log("Starting SVG export...");
+            
+            // Set dimensions to 600x600
+            const width = 600;
+            const height = 600;
+            const gridSize = this.gridSize;
+            
+            // Get current time value
+            const currentTime = (this.iteration * this.timeStep).toFixed(2);
+            
+            // Update min/max values before export (call the updateVisualization method to set them)
+            this.updateMinMaxValues();
+            
+            // Calculate brush selected cells count
+            this.brushSelectedCells = this.selectedCellsForInput.size;
+            
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("width", width);
+            svg.setAttribute("height", height);
+            svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+            svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svg.setAttribute("version", "1.1");
+            
+            // Add metadata
+            const metadata = document.createElementNS("http://www.w3.org/2000/svg", "metadata");
+            metadata.textContent = `Created by ECM Simulation - Iteration ${this.iteration}`;
+            svg.appendChild(metadata);
+            
+            const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            title.textContent = `ECMSim - Iteration ${this.iteration}`;
+            svg.appendChild(title);
+            
+            const cellWidth = width / gridSize;
+            const cellHeight = height / gridSize;
+            
+            // Create a group for the heatmap cells
+            const cellGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            cellGroup.setAttribute("class", "heatmap-cells");
+            
+            // Create a temporary canvas to get color data - BUT DON'T DRAW THE LEGEND!
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Clear the temporary canvas
+            tempCtx.clearRect(0, 0, width, height);
+
+            // Draw ONLY the heatmap cells (not the legend) - we need to recreate the heatmap
+            if (this.wasm) {
+                try {
+                    // Get data based on molecule type (ECM or feedback)
+                    let dataPtr;
+                    let isFeedback = false;
+                    
+                    if (this.currentMoleculeIndex >= 100) {
+                        const adjustedIndex = this.currentMoleculeIndex - 100;
+                        dataPtr = this.wasm._getFeedbackData(adjustedIndex);
+                        isFeedback = true;
+                    } else {
+                        dataPtr = this.wasm._getECMData(this.currentMoleculeIndex);
+                    }
+                    
+                    // Apply log scaling for better visualization
+                    const logMin = this.minValue > 0 ? Math.log10(this.minValue) : -3;
+                    const logMax = Math.log10(this.maxValue);
+                    const logRange = Math.max(logMax - logMin, 0.01);
+                    
+                    // Draw heatmap cells directly to temp canvas
+                    for (let i = 0; i < gridSize; i++) {
+                        for (let j = 0; j < gridSize; j++) {
+                            let value = this.wasm._readDataValue(dataPtr, i, j);
+                            
+                            // Apply log scaling for better visualization of small values
+                            if (value > 0) {
+                                let logVal = Math.log10(value);
+                                value = (logVal - logMin) / logRange;
+                            } else {
+                                value = 0;
+                            }
+                            
+                            // Create heatmap color (red to yellow for ECM, blue for feedback)
+                            let r, g, b;
+                            
+                            if (isFeedback) {
+                                // Blue gradient for feedback molecules
+                                r = 0;
+                                g = Math.min(255, value * 255);
+                                b = Math.min(255, value * 255 * 2);
+                            } else {
+                                // Red-yellow gradient for ECM molecules
+                                r = Math.min(255, value * 255 * 2);
+                                g = Math.min(255, value * 255);
+                                b = 0;
+                            }
+                            
+                            tempCtx.fillStyle = `rgb(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)})`;
+                            tempCtx.fillRect(j * cellWidth, i * cellHeight, cellWidth, cellHeight);
+                        }
+                    }
+                    
+                    // Free the data memory
+                    this.wasm._freeData(dataPtr);
+                    
+                } catch (error) {
+                    console.error("Error generating heatmap for SVG:", error);
+                }
+            }
+
+            const imageData = tempCtx.getImageData(0, 0, width, height);
+            const pixelData = imageData.data;
+
+            // Draw heatmap cells as SVG rectangles
+            for (let row = 0; row < gridSize; row++) {
+                for (let col = 0; col < gridSize; col++) {
+                    const x = Math.floor(col * cellWidth + cellWidth / 2);
+                    const y = Math.floor(row * cellHeight + cellHeight / 2);
+                    const pixelIndex = (y * width + x) * 4;
+                    
+                    // Check if pixel index is within bounds
+                    if (pixelIndex < 0 || pixelIndex + 3 >= pixelData.length) {
+                        continue;
+                    }
+                    
+                    const r = pixelData[pixelIndex];
+                    const g = pixelData[pixelIndex + 1];
+                    const b = pixelData[pixelIndex + 2];
+                    
+                    // Check if pixel is valid
+                    if (isNaN(r) || isNaN(g) || isNaN(b)) {
+                        continue;
+                    }
+                    
+                    const color = `rgb(${r},${g},${b})`;
+                    
+                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    rect.setAttribute("x", col * cellWidth);
+                    rect.setAttribute("y", row * cellHeight);
+                    rect.setAttribute("width", Math.ceil(cellWidth));
+                    rect.setAttribute("height", Math.ceil(cellHeight));
+                    rect.setAttribute("fill", color);
+                    rect.setAttribute("stroke", "none");
+                    cellGroup.appendChild(rect);
+                }
+            }
+            svg.appendChild(cellGroup);
+
+            // Add brush selection overlay if there are selected cells
+            console.log("SVG Export - Brush selected cells:", this.selectedCellsForInput.size);
+            if (this.selectedCellsForInput.size > 0) {
+                const brushGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                brushGroup.setAttribute("class", "brush-selection");
+
+                this.selectedCellsForInput.forEach(cellKey => {
+                    const [row, col] = cellKey.split(',').map(Number);
+                    const x = col * cellWidth;
+                    const y = row * cellHeight;
+
+                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    rect.setAttribute("x", x);
+                    rect.setAttribute("y", y);
+                    rect.setAttribute("width", Math.ceil(cellWidth));
+                    rect.setAttribute("height", Math.ceil(cellHeight));
+                    // Use proper SVG opacity attributes instead of rgba()
+                    rect.setAttribute("fill", "#FFFFFF");
+                    rect.setAttribute("fill-opacity", "0.3");
+                    rect.setAttribute("stroke", "#FFFFFF");
+                    rect.setAttribute("stroke-opacity", "0.8");
+                    rect.setAttribute("stroke-width", "0.5");
+                    brushGroup.appendChild(rect);
+                });
+
+                svg.appendChild(brushGroup);
+                console.log("SVG Export - Added brush selection group with", this.selectedCellsForInput.size, "cells");
+            }
+
+            // Add tracked cells with colored borders and labels
+            console.log("SVG Export - Tracked cells:", this.trackedCells.length);
+            if (this.trackedCells.length > 0) {
+                const trackedGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                trackedGroup.setAttribute("class", "tracked-cells");
+
+                this.trackedCells.forEach((cell, index) => {
+                    const x = cell.col * cellWidth;
+                    const y = cell.row * cellHeight;
+
+                    // Outer colored border
+                    const outerRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    outerRect.setAttribute("x", x - 2);
+                    outerRect.setAttribute("y", y - 2);
+                    outerRect.setAttribute("width", Math.ceil(cellWidth) + 4);
+                    outerRect.setAttribute("height", Math.ceil(cellHeight) + 4);
+                    outerRect.setAttribute("fill", "none");
+                    outerRect.setAttribute("stroke", cell.color);
+                    outerRect.setAttribute("stroke-width", "4");
+                    trackedGroup.appendChild(outerRect);
+
+                    // Inner white border for contrast
+                    const innerRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    innerRect.setAttribute("x", x);
+                    innerRect.setAttribute("y", y);
+                    innerRect.setAttribute("width", Math.ceil(cellWidth));
+                    innerRect.setAttribute("height", Math.ceil(cellHeight));
+                    innerRect.setAttribute("fill", "none");
+                    innerRect.setAttribute("stroke", "#FFFFFF");
+                    innerRect.setAttribute("stroke-width", "1");
+                    trackedGroup.appendChild(innerRect);
+
+                    // Cell number label with stroke for visibility
+                    const textStroke = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    textStroke.setAttribute("x", x + 2);
+                    textStroke.setAttribute("y", y + 12);
+                    textStroke.setAttribute("font-family", "Arial, sans-serif");
+                    textStroke.setAttribute("font-size", "12");
+                    textStroke.setAttribute("font-weight", "bold");
+                    textStroke.setAttribute("fill", "none");
+                    textStroke.setAttribute("stroke", "#000000");
+                    textStroke.setAttribute("stroke-width", "3");
+                    textStroke.textContent = `${index + 1}`;
+                    trackedGroup.appendChild(textStroke);
+
+                    // Cell number label fill
+                    const textFill = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    textFill.setAttribute("x", x + 2);
+                    textFill.setAttribute("y", y + 12);
+                    textFill.setAttribute("font-family", "Arial, sans-serif");
+                    textFill.setAttribute("font-size", "12");
+                    textFill.setAttribute("font-weight", "bold");
+                    textFill.setAttribute("fill", "#FFFFFF");
+                    textFill.textContent = `${index + 1}`;
+                    trackedGroup.appendChild(textFill);
+                });
+
+                svg.appendChild(trackedGroup);
+                console.log("SVG Export - Added tracked cells group with", this.trackedCells.length, "cells");
+            }
+
+            // Add text details as SVG text (crisp and scalable)
+            const textGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            textGroup.setAttribute("class", "heatmap-text");
+            
+            // Background rectangle for text
+            const textBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            textBg.setAttribute("x", 10);
+            textBg.setAttribute("y", 10);
+            textBg.setAttribute("width", 320);
+            textBg.setAttribute("height", 80);
+            textBg.setAttribute("fill", "white");
+            textBg.setAttribute("fill-opacity", "0.8");
+            textBg.setAttribute("stroke", "#333");
+            textBg.setAttribute("stroke-width", "1");
+            textBg.setAttribute("rx", "5");
+            textBg.setAttribute("ry", "5");
+            textGroup.appendChild(textBg);
+            
+            // Create text lines
+            const textLines = [
+                `Iteration: ${this.iteration} | Time: ${currentTime}`,
+                `Range: ${this.minValue.toExponential(2)} - ${this.maxValue.toExponential(2)}`,
+                `Brush selected (input): ${this.brushSelectedCells} cells`,
+                `Tracked cells (plot): ${this.trackedCells.length}`
+            ];
+            
+            // Add each text line
+            textLines.forEach((line, index) => {
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", 20);
+                text.setAttribute("y", 30 + (index * 15));
+                text.setAttribute("font-family", "Arial, sans-serif");
+                text.setAttribute("font-size", "12");
+                text.setAttribute("fill", "#333");
+                text.textContent = line;
+                textGroup.appendChild(text);
+            });
+            
+            svg.appendChild(textGroup);
+            
+            const svgString = new XMLSerializer().serializeToString(svg);
+            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            
+            // Create and trigger download
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `ecm-heatmap-${this.iteration}-600x600.svg`;
+            
+            // Append to body, click, and remove
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Revoke the object URL
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            console.log("SVG export completed successfully");
+            
+        } catch (error) {
+            console.error("Error exporting SVG:", error);
+            alert("Failed to export SVG: " + error.message);
+        }
+    }
+    
+    exportCanvasToPNG() {
+        try {
+            console.log("Starting PNG export...");
+            
+            // Create a temporary canvas for high-resolution PNG
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 600;
+            tempCanvas.height = 600;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Scale the original canvas content to 600x600
+            tempCtx.drawImage(this.canvas, 0, 0, this.canvas.width, this.canvas.height, 
+                            0, 0, 600, 600);
+            
+            const dataUrl = tempCanvas.toDataURL('image/png');
+            
+            // Create and trigger download
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `ecm-heatmap-${this.iteration}-600x600.png`;
+            
+            // Append to body, click, and remove
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            console.log("PNG export completed successfully");
+
+        } catch (error) {
+            console.error("Error exporting PNG:", error);
+            alert("Failed to export PNG: " + error.message);
+        }
+    }
+
+    exportLinePlotToPNG() {
+        try {
+            console.log("Starting Line Plot PNG export...");
+
+            const dataUrl = this.linePlotCanvas.toDataURL('image/png');
+
+            // Create and trigger download
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `ecm-lineplot-${this.iteration}.png`;
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            console.log("Line Plot PNG export completed successfully");
+
+        } catch (error) {
+            console.error("Error exporting Line Plot PNG:", error);
+            alert("Failed to export Line Plot PNG: " + error.message);
+        }
+    }
+
+    exportLinePlotToSVG() {
+        try {
+            console.log("Starting Line Plot SVG export...");
+
+            const width = this.linePlotCanvas.width;
+            const height = this.linePlotCanvas.height;
+            const padding = 40;
+            const plotWidth = width - padding * 2;
+            const plotHeight = height - padding * 2;
+
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("width", width);
+            svg.setAttribute("height", height);
+            svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+            svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+
+            // White background
+            const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            bg.setAttribute("width", width);
+            bg.setAttribute("height", height);
+            bg.setAttribute("fill", "white");
+            svg.appendChild(bg);
+
+            // Draw axes
+            const axes = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            axes.setAttribute("d", `M ${padding} ${padding} L ${padding} ${padding + plotHeight} L ${padding + plotWidth} ${padding + plotHeight}`);
+            axes.setAttribute("stroke", "#000");
+            axes.setAttribute("stroke-width", "1");
+            axes.setAttribute("fill", "none");
+            svg.appendChild(axes);
+
+            // Draw grid lines
+            for (let i = 0; i <= 10; i++) {
+                const y = padding + plotHeight - (i * plotHeight / 10);
+                const gridLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                gridLine.setAttribute("x1", padding);
+                gridLine.setAttribute("y1", y);
+                gridLine.setAttribute("x2", padding + plotWidth);
+                gridLine.setAttribute("y2", y);
+                gridLine.setAttribute("stroke", "#eee");
+                gridLine.setAttribute("stroke-width", "0.5");
+                svg.appendChild(gridLine);
+            }
+
+            // Find max value for scaling
+            let maxValue = 0;
+            Object.values(this.concentrationData).forEach(data => {
+                data.forEach(v => maxValue = Math.max(maxValue, v));
+            });
+            if (maxValue <= 0) maxValue = 1;
+
+            // Draw data lines for each tracked cell
+            this.trackedCells.forEach((cell, cellIndex) => {
+                const key = `${cell.row},${cell.col}`;
+                const data = this.concentrationData[key];
+
+                if (data && data.length > 1) {
+                    let pathD = '';
+                    for (let i = 0; i < data.length; i++) {
+                        const x = padding + (i / (data.length - 1)) * plotWidth;
+                        const y = padding + plotHeight - (data[i] / maxValue * plotHeight);
+
+                        if (i === 0) {
+                            pathD = `M ${x} ${y}`;
+                        } else {
+                            pathD += ` L ${x} ${y}`;
+                        }
+                    }
+
+                    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    path.setAttribute("d", pathD);
+                    path.setAttribute("stroke", cell.color);
+                    path.setAttribute("stroke-width", "2");
+                    path.setAttribute("fill", "none");
+                    svg.appendChild(path);
+                }
+            });
+
+            // Draw legend (no background)
+            const legendX = padding + plotWidth - 70;
+            const legendY = padding + 10;
+
+            // Draw legend entries
+            this.trackedCells.forEach((cell, index) => {
+                if (index < 8) {
+                    const y = legendY + index * 18;
+
+                    // Text first (just Cell number, no coordinates)
+                    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    text.setAttribute("x", legendX);
+                    text.setAttribute("y", y + 14);
+                    text.setAttribute("font-family", "Arial, sans-serif");
+                    text.setAttribute("font-size", "11");
+                    text.setAttribute("fill", "#000");
+                    text.textContent = `Cell ${index + 1}`;
+                    svg.appendChild(text);
+
+                    // Color line on the right side (closer to text)
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", legendX + 35);
+                    line.setAttribute("y1", y + 10);
+                    line.setAttribute("x2", legendX + 55);
+                    line.setAttribute("y2", y + 10);
+                    line.setAttribute("stroke", cell.color);
+                    line.setAttribute("stroke-width", "3");
+                    svg.appendChild(line);
+                }
+            });
+
+            // X-axis label
+            const xLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            xLabel.setAttribute("x", padding + plotWidth / 2);
+            xLabel.setAttribute("y", height - 10);
+            xLabel.setAttribute("font-family", "Arial, sans-serif");
+            xLabel.setAttribute("font-size", "12");
+            xLabel.setAttribute("fill", "#000");
+            xLabel.setAttribute("text-anchor", "middle");
+            xLabel.textContent = "Iterations";
+            svg.appendChild(xLabel);
+
+            // Y-axis labels
+            const yLabel0 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            yLabel0.setAttribute("x", padding - 5);
+            yLabel0.setAttribute("y", padding + plotHeight + 3);
+            yLabel0.setAttribute("font-family", "Arial, sans-serif");
+            yLabel0.setAttribute("font-size", "12");
+            yLabel0.setAttribute("fill", "#000");
+            yLabel0.setAttribute("text-anchor", "end");
+            yLabel0.textContent = "0";
+            svg.appendChild(yLabel0);
+
+            const yLabelMax = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            yLabelMax.setAttribute("x", padding - 5);
+            yLabelMax.setAttribute("y", padding + 3);
+            yLabelMax.setAttribute("font-family", "Arial, sans-serif");
+            yLabelMax.setAttribute("font-size", "12");
+            yLabelMax.setAttribute("fill", "#000");
+            yLabelMax.setAttribute("text-anchor", "end");
+            yLabelMax.textContent = maxValue.toFixed(3);
+            svg.appendChild(yLabelMax);
+
+            // Y-axis title (rotated)
+            const yTitle = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            yTitle.setAttribute("x", 10);
+            yTitle.setAttribute("y", padding + plotHeight / 2);
+            yTitle.setAttribute("font-family", "Arial, sans-serif");
+            yTitle.setAttribute("font-size", "12");
+            yTitle.setAttribute("fill", "#000");
+            yTitle.setAttribute("text-anchor", "middle");
+            yTitle.setAttribute("transform", `rotate(-90, 10, ${padding + plotHeight / 2})`);
+            yTitle.textContent = "Concentration";
+            svg.appendChild(yTitle);
+
+            // Serialize and download
+            const svgString = new XMLSerializer().serializeToString(svg);
+            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `ecm-lineplot-${this.iteration}.svg`;
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 100);
+
+            console.log("Line Plot SVG export completed successfully");
+
+        } catch (error) {
+            console.error("Error exporting Line Plot SVG:", error);
+            alert("Failed to export Line Plot SVG: " + error.message);
+        }
+    }
+
+    // Helper method to update min/max values
+    updateMinMaxValues() {
+        if (!this.wasm) return;
+        
+        try {
+            // Get data based on molecule type (ECM or feedback)
+            let dataPtr;
+            let isFeedback = false;
+            
+            if (this.currentMoleculeIndex >= 100) {
+                const adjustedIndex = this.currentMoleculeIndex - 100;
+                dataPtr = this.wasm._getFeedbackData(adjustedIndex);
+                isFeedback = true;
+            } else {
+                dataPtr = this.wasm._getECMData(this.currentMoleculeIndex);
+            }
+            
+            // Track min/max values
+            this.minValue = 1.0;
+            this.maxValue = 0.0;
+            
+            for (let i = 0; i < this.gridSize; i++) {
+                for (let j = 0; j < this.gridSize; j++) {
+                    const value = this.wasm._readDataValue(dataPtr, i, j);
+                    if (value > 0) {
+                        this.minValue = Math.min(this.minValue, value);
+                        this.maxValue = Math.max(this.maxValue, value);
+                    }
+                }
+            }
+            
+            // Avoid division by zero
+            if (this.maxValue <= 0) this.maxValue = 0.01;
+            if (this.minValue >= this.maxValue) this.minValue = 0;
+            
+            // Free the data memory
+            this.wasm._freeData(dataPtr);
+            
+        } catch (error) {
+            console.error("Error updating min/max values:", error);
+        }
+    }
+    
+    // Toggle cell selection mode
+    toggleCellSelectionMode() {
+        this.cellSelectionMode = !this.cellSelectionMode;
+        const button = document.getElementById('cell-select-toggle');
+
+        if (this.cellSelectionMode) {
+            // Do NOT disable brush mode - let both modes coexist
+            button.textContent = 'Disable Cell Selection';
+            button.style.backgroundColor = '#ff6600';
+            button.style.color = 'white';
+            this.canvas.style.cursor = 'pointer';
+        } else {
+            button.textContent = 'Enable Cell Selection';
+            button.style.backgroundColor = '';
+            button.style.color = '';
+            this.canvas.style.cursor = 'default';
+        }
+
+        this.updateVisualization();
+    }
+    
+    // Handle individual cell click for tracking
+    handleCellClick(e) {
+        if (!this.cellSelectionMode) return;
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        // Convert canvas coordinates to grid coordinates
+        const scale = 500 / this.gridSize; // Use display size (500px)
+        const gridCol = Math.floor(x / scale);
+        const gridRow = Math.floor(y / scale);
+        
+        // Check if this cell is already tracked
+        const existingIndex = this.trackedCells.findIndex(
+            cell => cell.row === gridRow && cell.col === gridCol
+        );
+        
+        if (existingIndex >= 0) {
+            // Remove if already tracked
+            this.trackedCells.splice(existingIndex, 1);
+            delete this.concentrationData[`${gridRow},${gridCol}`];
+        } else if (this.trackedCells.length < 8) {
+            // Add new cell with a unique color
+            const color = this.cellColors[this.trackedCells.length];
+            this.trackedCells.push({
+                row: gridRow,
+                col: gridCol,
+                color: color
+            });
+            
+            // Initialize concentration tracking for this cell
+            this.concentrationData[`${gridRow},${gridCol}`] = [];
+        }
+        
+        this.updateTrackedCellsUI();
+        this.updateVisualization();
+    }
+    
+    // Clear all tracked cells
+    clearTrackedCells() {
+        this.trackedCells = [];
+        this.concentrationData = {};
+        this.updateTrackedCellsUI();
+        this.updateVisualization();
+    }
+    
+    // Update tracked cells UI
+    updateTrackedCellsUI() {
+        const info = document.getElementById('cells-info');
+        const count = this.trackedCells.length;
+        info.textContent = `${count} cells selected for tracking (max 8)`;
+        
+        // Update concentration edit controls for tracked cells
+        const container = document.getElementById('tracked-cells-container');
+        container.innerHTML = '';
+        
+        if (count > 0 && this.wasm) {
+            // Get current molecule name
+            let moleculeName = 'proCI';
+            if (this.currentMoleculeIndex >= 100) {
+                const fbIndex = this.currentMoleculeIndex - 100;
+                moleculeName = this.fbMolecules.find(m => m.index === fbIndex)?.name || 'TGFBfb';
+            } else {
+                moleculeName = this.ecmMolecules.find(m => m.index === this.currentMoleculeIndex)?.name || 'proCI';
+            }
+            
+            const title = document.createElement('div');
+            title.style.fontWeight = 'bold';
+            title.style.marginBottom = '10px';
+            title.textContent = `Edit ${moleculeName} Concentration:`;
+            container.appendChild(title);
+            
+            this.trackedCells.forEach((cell, index) => {
+                const cellDiv = document.createElement('div');
+                cellDiv.style.marginBottom = '10px';
+                cellDiv.style.display = 'flex';
+                cellDiv.style.alignItems = 'center';
+                
+                // Color indicator
+                const colorBox = document.createElement('span');
+                colorBox.style.display = 'inline-block';
+                colorBox.style.width = '20px';
+                colorBox.style.height = '20px';
+                colorBox.style.backgroundColor = cell.color;
+                colorBox.style.border = '1px solid black';
+                colorBox.style.marginRight = '10px';
+                
+                // Cell label
+                const label = document.createElement('span');
+                label.textContent = `Cell ${index + 1} (${cell.row},${cell.col}):`;
+                label.style.width = '120px';
+                label.style.marginRight = '10px';
+                
+                // Get current value
+                let dataPtr;
+                let isFeedback = false;
+                if (this.currentMoleculeIndex >= 100) {
+                    const adjustedIndex = this.currentMoleculeIndex - 100;
+                    dataPtr = this.wasm._getFeedbackData(adjustedIndex);
+                    isFeedback = true;
+                } else {
+                    dataPtr = this.wasm._getECMData(this.currentMoleculeIndex);
+                }
+                
+                const currentValue = this.wasm._readDataValue(dataPtr, cell.row, cell.col);
+                this.wasm._freeData(dataPtr);
+                
+                // Value input
+                const valueInput = document.createElement('input');
+                valueInput.type = 'number';
+                valueInput.min = '0';
+                valueInput.max = '1';
+                valueInput.step = '0.01';
+                valueInput.value = currentValue.toFixed(4);
+                valueInput.style.width = '80px';
+                
+                valueInput.addEventListener('change', (e) => {
+                    const newValue = parseFloat(e.target.value);
+                    
+                    // Apply the change to the simulation grid
+                    this.wasm._setCellConcentration(
+                        isFeedback ? 1 : 0,
+                        isFeedback ? this.currentMoleculeIndex - 100 : this.currentMoleculeIndex,
+                        cell.row, cell.col, newValue
+                    );
+                    
+                    this.updateVisualization();
+                });
+                
+                cellDiv.appendChild(colorBox);
+                cellDiv.appendChild(label);
+                cellDiv.appendChild(valueInput);
+                container.appendChild(cellDiv);
+            });
+        }
     }
     
     // Brush mode toggle
     toggleBrushMode() {
         this.brushMode = !this.brushMode;
         const button = document.getElementById('brush-toggle');
-        
+
         if (this.brushMode) {
+            // Do NOT disable cell selection mode - let both modes coexist
             button.textContent = 'Disable Brush Mode';
             button.style.backgroundColor = '#ff4444';
             button.style.color = 'white';
@@ -403,11 +1334,11 @@ class ECMVisualizer {
             this.canvas.style.cursor = 'default';
             this.isMouseDown = false;
         }
-        
+
         this.updateVisualization();
     }
     
-    // Clear brush selection - CORRECTED
+    // Clear brush selection
     clearBrushSelection() {
         this.selectedCellsForInput.clear();
         this.updateSelectionInfo();
@@ -421,8 +1352,9 @@ class ECMVisualizer {
     
     // Handle mouse down for brush selection
     handleMouseDown(e) {
-        if (!this.brushMode) return;
-        
+        // Don't paint if cell selection mode is enabled (cell selection takes priority)
+        if (!this.brushMode || this.cellSelectionMode) return;
+
         this.isMouseDown = true;
         this.paintCells(e);
     }
@@ -451,7 +1383,7 @@ class ECMVisualizer {
         const y = e.clientY - rect.top;
         
         // Convert canvas coordinates to grid coordinates
-        const scale = this.canvas.width / this.gridSize;
+        const scale = 500 / this.gridSize; // Use display size (500px)
         const gridX = Math.floor(x / scale);
         const gridY = Math.floor(y / scale);
         
@@ -480,10 +1412,10 @@ class ECMVisualizer {
     updateSelectionInfo() {
         const info = document.getElementById('selection-info');
         const count = this.selectedCellsForInput.size;
-        info.textContent = `${count} cells selected`;
+        info.textContent = `${count} cells selected for input`;
     }
     
-    // CORRECTED: Apply current input values to selected cells
+    // Apply current input values to selected cells
     applyInputToSelectedCells() {
         if (!this.wasm) return;
         
@@ -503,297 +1435,6 @@ class ECMVisualizer {
         });
         
         console.log(`Applied input values to ${this.selectedCellsForInput.size} selected cells`);
-    }
-    
-    // CORRECTED: Set input concentration for a specific cell
-    setCellInputConcentration(moleculeIndex, row, col, value) {
-        if (!this.wasm) return;
-        
-        // Use the actual C++ function instead of JavaScript workaround
-        this.wasm._setCellInputConcentration(moleculeIndex, row, col, value);
-    }
-    
-    initSmallCanvas() {
-        // Create a container for the small canvas and line plots
-        const container = document.createElement('div');
-        container.style.marginTop = '20px';
-        container.style.display = 'flex';
-        container.style.gap = '20px';
-        
-        // Left side: small heatmap and selection controls
-        const heatmapContainer = document.createElement('div');
-        
-        // Add a label for the small heatmap
-        const label = document.createElement('div');
-        label.textContent = 'Select 2 Cells to Track (Click to select/deselect)';
-        label.style.fontWeight = 'bold';
-        label.style.marginBottom = '10px';
-        
-        // Create the small canvas
-        this.smallCanvas = document.createElement('canvas');
-        this.smallCanvas.width = 150;
-        this.smallCanvas.height = 150;
-        this.smallCanvas.style.border = '1px solid #000';
-        this.smallCanvas.style.cursor = 'pointer';
-        this.smallCtx = this.smallCanvas.getContext('2d');
-        
-        // Add click handler for cell selection
-        this.smallCanvas.addEventListener('click', (e) => this.handleCellSelection(e));
-        
-        // Add clear selection button
-        const clearButton = document.createElement('button');
-        clearButton.textContent = 'Clear Selection';
-        clearButton.style.marginTop = '10px';
-        clearButton.addEventListener('click', () => {
-            this.selectedCells = [];
-            this.modifiedCellValues = {}; // Clear any modified values
-            this.updateCellEditUI();
-            this.updateVisualization();
-        });
-        
-        heatmapContainer.appendChild(label);
-        heatmapContainer.appendChild(this.smallCanvas);
-        heatmapContainer.appendChild(clearButton);
-        
-        // Add UI for editing selected cell concentrations
-        const editContainer = document.createElement('div');
-        editContainer.style.marginTop = '20px';
-        editContainer.style.border = '1px solid #ccc';
-        editContainer.style.padding = '10px';
-
-        const editTitle = document.createElement('h4');
-        editTitle.textContent = 'Edit Selected Cell Concentrations';
-        editTitle.style.margin = '0 0 10px 0';
-        editContainer.appendChild(editTitle);
-
-        // Create UI for Cell 1
-        this.cell1Container = document.createElement('div');
-        this.cell1Container.style.marginBottom = '10px';
-        const cell1Label = document.createElement('div');
-        cell1Label.textContent = 'Cell 1: Not selected';
-        cell1Label.style.fontWeight = 'bold';
-        this.cell1Container.appendChild(cell1Label);
-
-        // Create UI for Cell 2
-        this.cell2Container = document.createElement('div');
-        const cell2Label = document.createElement('div');
-        cell2Label.textContent = 'Cell 2: Not selected';
-        cell2Label.style.fontWeight = 'bold';
-        this.cell2Container.appendChild(cell2Label);
-
-        editContainer.appendChild(this.cell1Container);
-        editContainer.appendChild(this.cell2Container);
-        heatmapContainer.appendChild(editContainer);
-        
-        // Right side: line plots
-        this.linePlotsContainer = document.createElement('div');
-        this.linePlotsContainer.style.flexGrow = '1';
-        
-        // Create canvas for line plots
-        this.linePlotCanvas = document.createElement('canvas');
-        this.linePlotCanvas.width = 500;
-        this.linePlotCanvas.height = 150;
-        this.linePlotCanvas.style.border = '1px solid #000';
-        this.linePlotCtx = this.linePlotCanvas.getContext('2d');
-        
-        // Add label for line plots
-        const plotsLabel = document.createElement('div');
-        plotsLabel.textContent = 'Molecule Concentration Over Time';
-        plotsLabel.style.fontWeight = 'bold';
-        plotsLabel.style.marginBottom = '10px';
-        
-        this.linePlotsContainer.appendChild(plotsLabel);
-        this.linePlotsContainer.appendChild(this.linePlotCanvas);
-        
-        // Add both containers to main container
-        container.appendChild(heatmapContainer);
-        container.appendChild(this.linePlotsContainer);
-        
-        // Add container to the document
-        document.body.appendChild(container);
-        
-        // Initialize data for tracking concentrations
-        this.concentrationData = {
-            cell1: [],
-            cell2: []
-        };
-        
-        // Select 2 random cells if none selected
-        if (this.selectedCells.length === 0) {
-            this.selectRandomCells();
-        }
-        
-        // Initially update the cell UI
-        this.updateCellEditUI();
-    }
-    
-    updateCellEditUI() {
-        // Clear existing controls
-        while (this.cell1Container.childNodes.length > 1) {
-            this.cell1Container.removeChild(this.cell1Container.lastChild);
-        }
-        
-        while (this.cell2Container.childNodes.length > 1) {
-            this.cell2Container.removeChild(this.cell2Container.lastChild);
-        }
-        
-        // Update cell labels and add controls
-        for (let i = 0; i < Math.min(this.selectedCells.length, 2); i++) {
-            const cell = this.selectedCells[i];
-            const container = i === 0 ? this.cell1Container : this.cell2Container;
-            const label = container.firstChild;
-            
-            label.textContent = `Cell ${i+1}: Small Grid (${cell.row}, ${cell.col}) -> Full Grid (${cell.fullGridRow}, ${cell.fullGridCol})`;
-            
-            // Get current molecule data
-            let isFeedback = false;
-            let dataPtr;
-            
-            if (this.wasm) {
-                if (this.currentMoleculeIndex >= 100) {
-                    // For feedback molecules
-                    const adjustedIndex = this.currentMoleculeIndex - 100;
-                    dataPtr = this.wasm._getFeedbackData(adjustedIndex);
-                    isFeedback = true;
-                } else {
-                    // For ECM molecules
-                    dataPtr = this.wasm._getECMData(this.currentMoleculeIndex);
-                }
-                
-                // Get current value from the actual simulation
-                let currentValue = this.wasm._readDataValue(dataPtr, cell.fullGridRow, cell.fullGridCol);
-                
-                // Free data pointer
-                this.wasm._freeData(dataPtr);
-                
-                // Create input control for this cell
-                const inputGroup = document.createElement('div');
-                inputGroup.style.marginTop = '5px';
-                inputGroup.style.display = 'flex';
-                inputGroup.style.alignItems = 'center';
-                
-                const valueLabel = document.createElement('span');
-                valueLabel.textContent = 'Concentration: ';
-                valueLabel.style.marginRight = '10px';
-                
-                const valueInput = document.createElement('input');
-                valueInput.type = 'number';
-                valueInput.min = '0';
-                valueInput.max = '1';
-                valueInput.step = '0.01';
-                valueInput.value = currentValue.toFixed(4);
-                valueInput.style.width = '80px';
-                
-                // Add event handler to update when changed
-                valueInput.addEventListener('change', (e) => {
-                    const newValue = parseFloat(e.target.value);
-                    
-                    // Apply the change immediately to the simulation
-                    this.wasm._setCellConcentration(isFeedback ? 1 : 0, 
-                                                    isFeedback ? this.currentMoleculeIndex - 100 : this.currentMoleculeIndex,
-                                                    cell.fullGridRow, cell.fullGridCol, newValue);
-                    
-                    // Update visualization
-                    this.updateVisualization();
-                });
-                
-                inputGroup.appendChild(valueLabel);
-                inputGroup.appendChild(valueInput);
-                container.appendChild(inputGroup);
-            }
-        }
-    }
-    
-    handleCellSelection(event) {
-        const rect = this.smallCanvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        
-        const cellSize = this.smallCanvas.width / this.smallGridSize;
-        const col = Math.floor(x / cellSize);
-        const row = Math.floor(y / cellSize);
-        
-        // Check if cell is already selected
-        const existingIndex = this.selectedCells.findIndex(cell => 
-            cell.row === row && cell.col === col);
-        
-        if (existingIndex >= 0) {
-            // Remove if clicked again
-            this.selectedCells.splice(existingIndex, 1);
-        } else if (this.selectedCells.length < 2) {
-            // Current code:
-            // Adjust these values to control how close the cells are in the large grid
-            const regionSize = 1; // Make cells closer together (was 20)
-            const offsetRow = 40;  // Starting position in large grid
-            const offsetCol = 40;  // Starting position in large grid
-
-            // Calculate full grid coordinates  
-            const fullGridRow = offsetRow + (row * regionSize);
-            const fullGridCol = offsetCol + (col * regionSize);
-            
-            this.selectedCells.push({
-                row: row,  // Small grid row (for display)
-                col: col,  // Small grid col (for display)
-                fullGridRow: fullGridRow,  // Full grid row (for simulation)
-                fullGridCol: fullGridCol   // Full grid col (for simulation)
-            });
-        } else {
-            // Replace the first selection if we already have 2
-            // Use the same mapping as in handleCellSelection
-            const regionSize = 1;
-            const offsetRow = 40;
-            const offsetCol = 40;
-
-            const fullGridRow = offsetRow + (row * regionSize);
-            const fullGridCol = offsetCol + (col * regionSize);
-            
-            this.selectedCells[0] = {
-                row: row,
-                col: col,
-                fullGridRow: fullGridRow,
-                fullGridCol: fullGridCol
-            };
-        }
-        
-        // Update the cell editing UI
-        this.updateCellEditUI();
-        
-        // Update the visualization
-        this.updateVisualization();
-    }
-    
-    selectRandomCells() {
-        this.selectedCells = [];
-        
-        // Select 2 random positions from the 5x5 grid
-        for (let i = 0; i < 2; i++) {
-            const row = Math.floor(Math.random() * this.smallGridSize);
-            const col = Math.floor(Math.random() * this.smallGridSize);
-            
-            // Make sure we don't select the same cell twice
-            const position = `${row},${col}`;
-            if (this.selectedCells.some(cell => `${cell.row},${cell.col}` === position)) {
-                i--; // Try again
-                continue;
-            } else {
-                // Map to full grid coordinates
-                const scaleFactorRows = this.gridSize / this.smallGridSize;
-                const scaleFactorCols = this.gridSize / this.smallGridSize;
-                
-                const fullGridRow = Math.floor(row * scaleFactorRows + scaleFactorRows / 2);
-                const fullGridCol = Math.floor(col * scaleFactorCols + scaleFactorCols / 2);
-                
-                this.selectedCells.push({ 
-                    row, 
-                    col,
-                    fullGridRow,
-                    fullGridCol
-                });
-            }
-        }
-        
-        // Update the cell editing UI
-        this.updateCellEditUI();
     }
     
     async initWasm() {
@@ -848,19 +1489,6 @@ class ECMVisualizer {
         }
     }
     
-    setInputConcentration(moleculeIndex, value) {
-        // This function is now deprecated in favor of applyInputToSelectedCells
-        // But we keep it for compatibility
-        if (this.wasm) {
-            try {
-                this.wasm._setInputConcentration(moleculeIndex, value);
-                this.updateVisualization();
-            } catch (error) {
-                console.error(`Error setting concentration for molecule index ${moleculeIndex}:`, error);
-            }
-        }
-    }
-    
     startSimulation() {
         this.simulationRunning = true;
         this.simulationLoop();
@@ -873,14 +1501,14 @@ class ECMVisualizer {
     stepSimulation() {
         if (this.wasm) {
             try {
-                // CRITICAL: Apply input concentrations to selected cells before each step
-                // This ensures continuous feeding of updated values
+                // Apply input concentrations to selected cells before each step
                 this.applyInputToSelectedCells();
                 
                 this.wasm._simulateStep(this.timeStep);
                 this.iteration++;
+                this.currentTime = this.iteration * this.timeStep; // Update current time
                 this.updateVisualization();
-                this.updateCellEditUI(); // Update input values to reflect simulation changes
+                this.updateTrackedCellsUI(); // Update input values to reflect simulation changes
             } catch (error) {
                 console.error("Error during simulation step:", error);
                 this.stopSimulation();
@@ -888,21 +1516,18 @@ class ECMVisualizer {
         }
     }
     
-    // CORRECTED: Reset simulation with proper cleanup
+    // Reset simulation with proper cleanup
     resetSimulation() {
         if (this.wasm) {
             try {
                 // Reset the iteration counter
                 this.iteration = 0;
+                this.currentTime = 0.0;
                 
-                // Clear concentration data
-                this.concentrationData = {
-                    cell1: [],
-                    cell2: []
-                };
-                
-                // Clear modified cell values
-                this.modifiedCellValues = {};
+                // Clear concentration data for tracked cells
+                Object.keys(this.concentrationData).forEach(key => {
+                    this.concentrationData[key] = [];
+                });
                 
                 // Clear brush selection
                 this.selectedCellsForInput.clear();
@@ -927,11 +1552,9 @@ class ECMVisualizer {
                     this.currentInputValues[mol.name] = 0;
                 });
                 
-                // Select new random cells
-                this.selectRandomCells();
-                
                 // Update visualization
                 this.updateVisualization();
+                this.updateTrackedCellsUI();
                 
                 console.log("Simulation reset");
             } catch (error) {
@@ -940,7 +1563,7 @@ class ECMVisualizer {
         }
     }
     
-    // CORRECTED: Ensure continuous application during simulation loop
+    // Simulation loop
     simulationLoop() {
         if (!this.simulationRunning) return;
         
@@ -973,27 +1596,27 @@ class ECMVisualizer {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             
             // Track min/max values for better visualization
-            let minVal = 1.0;
-            let maxVal = 0.0;
+            this.minValue = 1.0;
+            this.maxValue = 0.0;
             
             // First pass: find min/max values
             for (let i = 0; i < this.gridSize; i++) {
                 for (let j = 0; j < this.gridSize; j++) {
                     const value = this.wasm._readDataValue(dataPtr, i, j);
                     if (value > 0) {
-                        minVal = Math.min(minVal, value);
-                        maxVal = Math.max(maxVal, value);
+                        this.minValue = Math.min(this.minValue, value);
+                        this.maxValue = Math.max(this.maxValue, value);
                     }
                 }
             }
             
             // Avoid division by zero
-            if (maxVal <= 0) maxVal = 0.01;
-            if (minVal >= maxVal) minVal = 0;
+            if (this.maxValue <= 0) this.maxValue = 0.01;
+            if (this.minValue >= this.maxValue) this.minValue = 0;
             
             // Apply log scaling for better visualization
-            const logMin = minVal > 0 ? Math.log10(minVal) : -3;
-            const logMax = Math.log10(maxVal);
+            const logMin = this.minValue > 0 ? Math.log10(this.minValue) : -3;
+            const logMax = Math.log10(this.maxValue);
             const logRange = Math.max(logMax - logMin, 0.01);
             
             // Second pass: draw with enhanced contrast
@@ -1030,36 +1653,59 @@ class ECMVisualizer {
                 }
             }
             
-            // Draw brush selection overlay if brush mode is enabled
-            if (this.brushMode && this.selectedCellsForInput.size > 0) {
+            // Draw brush selection overlay if there are selected cells (regardless of brush mode)
+            if (this.selectedCellsForInput.size > 0) {
                 this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
                 this.ctx.lineWidth = 0.3; // Thin outline as requested
                 this.ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-                
+
                 this.selectedCellsForInput.forEach(cellKey => {
                     const [row, col] = cellKey.split(',').map(Number);
                     const x = col * scale;
                     const y = row * scale;
-                    
+
                     this.ctx.fillRect(x, y, scale, scale);
                     this.ctx.strokeRect(x, y, scale, scale);
                 });
             }
             
+            // Draw tracked cells with thick colored borders
+            this.trackedCells.forEach((cell, index) => {
+                const x = cell.col * scale;
+                const y = cell.row * scale;
+                
+                // Draw thick colored border
+                this.ctx.strokeStyle = cell.color;
+                this.ctx.lineWidth = 4;
+                this.ctx.strokeRect(x - 2, y - 2, scale + 4, scale + 4);
+                
+                // Draw white inner border for contrast
+                this.ctx.strokeStyle = '#FFFFFF';
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeRect(x, y, scale, scale);
+                
+                // Add cell number label
+                this.ctx.fillStyle = '#FFFFFF';
+                this.ctx.strokeStyle = '#000000';
+                this.ctx.lineWidth = 3;
+                this.ctx.font = 'bold 12px Arial';
+                const text = `${index + 1}`;
+                this.ctx.strokeText(text, x + 2, y + 12);
+                this.ctx.fillText(text, x + 2, y + 12);
+            });
+            
             // Add iteration counter and range info
             this.ctx.fillStyle = 'white';
-            this.ctx.fillRect(10, 10, 280, 70);
+            this.ctx.fillRect(10, 10, 320, 80);
             this.ctx.fillStyle = 'black';
             this.ctx.font = '16px Arial';
             this.ctx.fillText(`Iteration: ${this.iteration} | Time: ${(this.iteration * this.timeStep).toFixed(2)}`, 15, 30);
             this.ctx.font = '12px Arial';
-            this.ctx.fillText(`Range: ${minVal.toExponential(2)} - ${maxVal.toExponential(2)}`, 15, 50);
-            this.ctx.fillText(`Selected cells: ${this.selectedCellsForInput.size}`, 15, 70);
+            this.ctx.fillText(`Range: ${this.minValue.toExponential(2)} - ${this.maxValue.toExponential(2)}`, 15, 50);
+            this.ctx.fillText(`Brush selected (input): ${this.selectedCellsForInput.size} cells`, 15, 70);
+            this.ctx.fillText(`Tracked cells (plot): ${this.trackedCells.length}`, 15, 90);
             
-            // Now update the small heatmap
-            this.updateSmallHeatmap(dataPtr, isFeedback);
-            
-            // Update line plots
+            // Update line plots for tracked cells
             this.updateLinePlots(dataPtr, isFeedback);
             
             // Free the data memory
@@ -1070,140 +1716,32 @@ class ECMVisualizer {
         }
     }
     
-    updateSmallHeatmap(dataPtr, isFeedback) {
-        if (!this.wasm) return;
-        
-        // Clear small canvas
-        this.smallCtx.clearRect(0, 0, this.smallCanvas.width, this.smallCanvas.height);
-        
-        // Draw the 5x5 grid
-        const cellSize = this.smallCanvas.width / this.smallGridSize;
-        
-        // Draw grid background
-        this.smallCtx.fillStyle = '#f0f0f0';
-        this.smallCtx.fillRect(0, 0, this.smallCanvas.width, this.smallCanvas.height);
-        
-        // Draw grid lines
-        this.smallCtx.strokeStyle = '#ccc';
-        this.smallCtx.lineWidth = 1;
-        
-        for (let i = 0; i <= this.smallGridSize; i++) {
-            const pos = i * cellSize;
-            
-            // Vertical line
-            this.smallCtx.beginPath();
-            this.smallCtx.moveTo(pos, 0);
-            this.smallCtx.lineTo(pos, this.smallCanvas.height);
-            this.smallCtx.stroke();
-            
-            // Horizontal line
-            this.smallCtx.beginPath();
-            this.smallCtx.moveTo(0, pos);
-            this.smallCtx.lineTo(this.smallCanvas.width, pos);
-            this.smallCtx.stroke();
-        }
-        
-        // Map the selected cells from the 5x5 grid to the actual simulation grid
-        const regionSize = 1;
-        const offsetRow = 40;
-        const offsetCol = 40;
-        
-        // First draw all cells with their average values
-        for (let row = 0; row < this.smallGridSize; row++) {
-            for (let col = 0; col < this.smallGridSize; col++) {
-                // Calculate average value over the corresponding region in the full grid
-                let totalValue = 0;
-                let cellCount = 0;
-                
-                const startRow = offsetRow + (row * regionSize);
-                const endRow = Math.min(startRow + regionSize, this.gridSize);
-                const startCol = offsetCol + (col * regionSize);
-                const endCol = Math.min(startCol + regionSize, this.gridSize);
-                
-                for (let i = startRow; i < endRow; i++) {
-                    for (let j = startCol; j < endCol; j++) {
-                        totalValue += this.wasm._readDataValue(dataPtr, i, j);
-                        cellCount++;
-                    }
-                }
-                
-                const avgValue = cellCount > 0 ? totalValue / cellCount : 0;
-                
-                // Set fill color based on average value
-                let r, g, b;
-                if (isFeedback) {
-                    // Blue gradient for feedback molecules
-                    r = 0;
-                    g = Math.min(255, avgValue * 255);
-                    b = Math.min(255, avgValue * 255 * 2);
-                } else {
-                    // Red-yellow gradient for ECM molecules
-                    r = Math.min(255, avgValue * 255 * 2);
-                    g = Math.min(255, avgValue * 255);
-                    b = 0;
-                }
-                
-                // Fill the cell
-                this.smallCtx.fillStyle = `rgb(${Math.floor(r)}, ${Math.floor(g)}, ${Math.floor(b)})`;
-                this.smallCtx.fillRect(col * cellSize + 1, row * cellSize + 1, cellSize - 2, cellSize - 2);
-                
-                // Draw the value text
-                this.smallCtx.fillStyle = avgValue > 0.5 ? 'black' : 'white';
-                this.smallCtx.font = '10px Arial';
-                this.smallCtx.textAlign = 'center';
-                this.smallCtx.textBaseline = 'middle';
-                this.smallCtx.fillText(avgValue.toFixed(3), 
-                                      (col + 0.5) * cellSize, 
-                                      (row + 0.5) * cellSize);
-            }
-        }
-        
-        // Then highlight selected cells with a border
-        this.selectedCells.forEach((cell, index) => {
-            this.smallCtx.strokeStyle = index === 0 ? '#ff0000' : '#0000ff'; // Red for cell 1, blue for cell 2
-            this.smallCtx.lineWidth = 3;
-            this.smallCtx.strokeRect(
-                cell.col * cellSize + 1, 
-                cell.row * cellSize + 1, 
-                cellSize - 2, 
-                cellSize - 2
-            );
-        });
-    }
-    
     updateLinePlots(dataPtr, isFeedback) {
-        if (!this.wasm || this.selectedCells.length === 0) return;
+        if (!this.wasm || this.trackedCells.length === 0) return;
         
         // Clear line plot canvas
         this.linePlotCtx.clearRect(0, 0, this.linePlotCanvas.width, this.linePlotCanvas.height);
         
-        // Get current values for selected cells
-        const currentValues = [];
-        for (let i = 0; i < Math.min(2, this.selectedCells.length); i++) {
-            const cell = this.selectedCells[i];
-            const value = this.wasm._readDataValue(dataPtr, cell.fullGridRow, cell.fullGridCol);
-            currentValues.push(value);
-        }
-        
-        // Store current values
-        if (currentValues.length > 0) {
-            this.concentrationData.cell1.push(currentValues[0]);
-            if (currentValues.length > 1) {
-                this.concentrationData.cell2.push(currentValues[1]);
+        // Get current values for tracked cells and update concentration data
+        this.trackedCells.forEach(cell => {
+            const key = `${cell.row},${cell.col}`;
+            const value = this.wasm._readDataValue(dataPtr, cell.row, cell.col);
+            
+            if (!this.concentrationData[key]) {
+                this.concentrationData[key] = [];
             }
-        }
-        
-        // Limit data history to keep plots manageable
-        const maxDataPoints = 200;
-        if (this.concentrationData.cell1.length > maxDataPoints) {
-            this.concentrationData.cell1.shift();
-            if (this.concentrationData.cell2.length > 0) {
-                this.concentrationData.cell2.shift();
+            
+            this.concentrationData[key].push(value);
+            
+            // Limit data history to keep plots manageable
+            const maxDataPoints = 300;
+            if (this.concentrationData[key].length > maxDataPoints) {
+                this.concentrationData[key].shift();
             }
-        }
+        });
         
         // Draw line plots
-        const padding = 30;
+        const padding = 40;
         const plotWidth = this.linePlotCanvas.width - padding * 2;
         const plotHeight = this.linePlotCanvas.height - padding * 2;
         
@@ -1219,87 +1757,81 @@ class ECMVisualizer {
         // Draw grid lines
         this.linePlotCtx.strokeStyle = '#eee';
         this.linePlotCtx.lineWidth = 0.5;
-        this.linePlotCtx.beginPath();
         for (let i = 0; i <= 10; i++) {
             const y = padding + plotHeight - (i * plotHeight / 10);
+            this.linePlotCtx.beginPath();
             this.linePlotCtx.moveTo(padding, y);
             this.linePlotCtx.lineTo(padding + plotWidth, y);
+            this.linePlotCtx.stroke();
         }
-        this.linePlotCtx.stroke();
         
         // Find max value for scaling
         let maxValue = 0;
-        this.concentrationData.cell1.forEach(v => maxValue = Math.max(maxValue, v));
-        if (this.concentrationData.cell2.length > 0) {
-            this.concentrationData.cell2.forEach(v => maxValue = Math.max(maxValue, v));
-        }
+        Object.values(this.concentrationData).forEach(data => {
+            data.forEach(v => maxValue = Math.max(maxValue, v));
+        });
         if (maxValue <= 0) maxValue = 1;
         
-        // Draw cell 1 data
-        if (this.concentrationData.cell1.length > 1) {
-            this.linePlotCtx.strokeStyle = '#ff0000';
-            this.linePlotCtx.lineWidth = 2;
-            this.linePlotCtx.beginPath();
+        // Draw data for each tracked cell
+        this.trackedCells.forEach((cell, cellIndex) => {
+            const key = `${cell.row},${cell.col}`;
+            const data = this.concentrationData[key];
             
-            for (let i = 0; i < this.concentrationData.cell1.length; i++) {
-                const x = padding + (i / (this.concentrationData.cell1.length - 1)) * plotWidth;
-                const y = padding + plotHeight - (this.concentrationData.cell1[i] / maxValue * plotHeight);
+            if (data && data.length > 1) {
+                this.linePlotCtx.strokeStyle = cell.color;
+                this.linePlotCtx.lineWidth = 2;
+                this.linePlotCtx.beginPath();
                 
-                if (i === 0) {
-                    this.linePlotCtx.moveTo(x, y);
-                } else {
-                    this.linePlotCtx.lineTo(x, y);
+                for (let i = 0; i < data.length; i++) {
+                    const x = padding + (i / (data.length - 1)) * plotWidth;
+                    const y = padding + plotHeight - (data[i] / maxValue * plotHeight);
+                    
+                    if (i === 0) {
+                        this.linePlotCtx.moveTo(x, y);
+                    } else {
+                        this.linePlotCtx.lineTo(x, y);
+                    }
                 }
+                this.linePlotCtx.stroke();
             }
-            this.linePlotCtx.stroke();
-        }
+        });
         
-        // Draw cell 2 data
-        if (this.concentrationData.cell2.length > 1) {
-            this.linePlotCtx.strokeStyle = '#0000ff';
-            this.linePlotCtx.lineWidth = 2;
-            this.linePlotCtx.beginPath();
-            
-            for (let i = 0; i < this.concentrationData.cell2.length; i++) {
-                const x = padding + (i / (this.concentrationData.cell2.length - 1)) * plotWidth;
-                const y = padding + plotHeight - (this.concentrationData.cell2[i] / maxValue * plotHeight);
-                
-                if (i === 0) {
-                    this.linePlotCtx.moveTo(x, y);
-                } else {
-                    this.linePlotCtx.lineTo(x, y);
-                }
+        // Add legend (no background)
+        const legendX = padding + plotWidth - 70;
+        const legendY = padding + 10;
+
+        // Draw legend entries
+        this.trackedCells.forEach((cell, index) => {
+            if (index < 8) {
+                const y = legendY + index * 18;
+
+                // Text first (just Cell number, no coordinates)
+                this.linePlotCtx.fillStyle = '#000';
+                this.linePlotCtx.font = '11px Arial';
+                this.linePlotCtx.fillText(`Cell ${index + 1}`, legendX, y + 14);
+
+                // Color line on the right side (closer to text)
+                this.linePlotCtx.strokeStyle = cell.color;
+                this.linePlotCtx.lineWidth = 3;
+                this.linePlotCtx.beginPath();
+                this.linePlotCtx.moveTo(legendX + 35, y + 10);
+                this.linePlotCtx.lineTo(legendX + 55, y + 10);
+                this.linePlotCtx.stroke();
             }
-            this.linePlotCtx.stroke();
-        }
-        
-        // Add legend with improved positioning and better visibility
-        this.linePlotCtx.font = '12px Arial';
-
-        // Add a small background for the legend
-        this.linePlotCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        this.linePlotCtx.fillRect(padding + 10, padding + 10, 60, 50);
-
-        // Draw Cell 1 label (red)
-        this.linePlotCtx.fillStyle = '#ff0000';
-        this.linePlotCtx.fillText('Cell 1', padding + 20, padding + 25);
-
-        // Draw Cell 2 label (blue) if there's data for cell 2
-        if (this.concentrationData.cell2.length > 0) {
-            this.linePlotCtx.fillStyle = '#0000ff';
-            this.linePlotCtx.fillText('Cell 2', padding + 20, padding + 45);
-        }
+        });
         
         // Add axis labels
         this.linePlotCtx.fillStyle = '#000';
+        this.linePlotCtx.font = '12px Arial';
         this.linePlotCtx.textAlign = 'center';
-        this.linePlotCtx.fillText('Iterations', padding + plotWidth / 2, this.linePlotCanvas.height - 5);
+        this.linePlotCtx.fillText('Iterations', padding + plotWidth / 2, this.linePlotCanvas.height - 10);
         
-        // Add Y-axis labels
+        // Y-axis labels
         this.linePlotCtx.textAlign = 'right';
         this.linePlotCtx.fillText('0', padding - 5, padding + plotHeight + 3);
         this.linePlotCtx.fillText(maxValue.toFixed(3), padding - 5, padding + 3);
         
+        // Y-axis title
         this.linePlotCtx.save();
         this.linePlotCtx.translate(10, padding + plotHeight / 2);
         this.linePlotCtx.rotate(-Math.PI / 2);
