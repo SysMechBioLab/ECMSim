@@ -1,5 +1,7 @@
 # ECMSim
 
+Published paper: [Hays et al. 2026, Matrix Biology Plus](https://doi.org/10.1016/j.mbplus.2026.100195)
+
 A real-time interactive web-based simulation of cardiac fibroblast extracellular matrix (ECM) signaling pathways using WebAssembly and ODE-based modeling.
 
 ![](Figures/Fig-3.png)
