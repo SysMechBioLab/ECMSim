@@ -343,9 +343,19 @@ rm ecm.js ecm.wasm
 If you use this simulation in research, please cite:
 
 ```
-Preprint:
-[arXiv:2510.12577](https://doi.org/10.48550/arXiv.2510.12577)
-
+@article{Hays2026,
+  title = {ECMSim: A high-performance interactive web application for real-time spatiotemporal simulation of cardiac ECM signaling and diffusion},
+  volume = {30},
+  ISSN = {2590-0285},
+  url = {http://dx.doi.org/10.1016/j.mbplus.2026.100195},
+  DOI = {10.1016/j.mbplus.2026.100195},
+  journal = {Matrix Biology Plus},
+  publisher = {Elsevier BV},
+  author = {Hays,  Hasi and Richardson,  William J.},
+  year = {2026},
+  month = June,
+  pages = {100195}
+}
 ```
 
 ## License
